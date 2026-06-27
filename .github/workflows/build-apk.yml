@@ -1,0 +1,92 @@
+name: Build APK
+
+# 构建可安装的 MobileGL 插件 APK (debug 版本,使用 debug 密钥自动签名,可直接安装)。
+# 与现有的 apk.yml 不同,本 workflow 不依赖任何签名 secret,也不运行耗时的
+# emulator retrace 测试,专注于产出可安装的 APK 安装包。
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPRESS: "true"
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 4G
+      CCACHE_NOHASHDIR: "true"
+      MOBILEGL_CMAKE_COMPILER_LAUNCHER: ccache
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set artifact metadata
+        run: |
+          echo "date_today=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-build-apk-${{ github.job }}-ccache-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-build-apk-${{ github.job }}-ccache-${{ github.ref_name }}-
+            ${{ runner.os }}-build-apk-${{ github.job }}-ccache-
+
+      - name: Install ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache
+          ccache --version
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;27.3.13750724"
+          echo "ndk.dir=$ANDROID_HOME/ndk/27.3.13750724" >> android-plugin/local.properties
+
+      - name: Update glslang external sources
+        working-directory: 3rdparty/glslang
+        run: python update_glslang_sources.py
+
+      - name: Build plugin APKs (debug, installable)
+        run: gradle --no-daemon -p android-plugin :app:assembleEsprytPluginDebug :app:assembleMagmaPluginDebug -Pmobilegl.logLevel=MOBILEGL_LOG_LEVEL_INFO --parallel --max-workers "$(nproc)"
+
+      - name: Show ccache stats
+        if: always()
+        run: ccache --show-stats
+
+      - name: List built APKs
+        run: |
+          echo "=== Built APKs ==="
+          find android-plugin/app/build/outputs/apk -type f -name '*.apk' -print -exec ls -lh {} \;
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: MobileGL-apk-${{ env.date_today }}-${{ env.short_sha }}
+          path: android-plugin/app/build/outputs/apk/*Plugin/debug/*.apk
+          if-no-files-found: error

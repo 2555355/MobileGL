@@ -1,11 +1,16 @@
 name: MobileGL APK
 
 on:
-  push:
-    branches:
-      - dev
-      - Feat/Backend-Direct-GLES
-      - Feat/Backend-Direct-Vulkan
+  # NOTE: 自动 push 触发已禁用。此 workflow 依赖 SIGNING_STORE_PASSWORD /
+  # SIGNING_KEY_ALIAS / SIGNING_KEY_PASSWORD 三个签名 secret 才能产出已签名
+  # 的 release APK,且其 "Verify signed APKs" 步骤会拒绝未签名 APK。
+  # 在配置好上述 secret 之前,可通过 workflow_dispatch 手动触发,或在
+  # 配置 secret 后恢复下方的 push 触发器。
+  #   push:
+  #     branches:
+  #       - dev
+  #       - Feat/Backend-Direct-GLES
+  #       - Feat/Backend-Direct-Vulkan
   workflow_dispatch:
 
 jobs:
